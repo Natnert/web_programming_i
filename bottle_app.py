@@ -1,9 +1,13 @@
 # A very simple Bottle Hello World app for you to get started with...
-#test commit comment
 import datetime
 import os
 import random
 import sqlite3
+import uuid
+
+from tinydb import TinyDB, Query
+db = TinyDB("sessions.json")
+query = Query()
 
 from bottle import get, post, request, response, template, redirect
 
@@ -18,13 +22,68 @@ random.seed()
 
 @get('/')
 def get_show_list():
+    session_id = request.cookies.get("session_id",str(uuid.uuid4()))
+    result = db.search(query.session_id == session_id)
+    if len(result) == 0:
+        username = "Unknown"
+        pass
+    else:
+        session = result[0]
+        if "username" in session:
+            username = session['username']
+        else:
+            username = "Unknown, but has a cookie..."
+    response.set_cookie("session_id",session_id)
     connection = sqlite3.connect("todo.db")
     cursor = connection.cursor()
     cursor.execute("select * from todo")
     result = cursor.fetchall()
     cursor.close()
-    return template("show_list", rows=result)
+    return template("show_list", rows=result, username=username)
 
+@get('/sandbox')
+def get_sandbox():
+    return template("sandbox")
+
+@get('/login')
+def get_login():
+    return template("login", csrf_token="abcrsrerredadfa")
+
+@post('/login')
+def post_login():
+    csrf_token = request.forms.get("csrf_token").strip()
+    if csrf_token != "abcrsrerredadfa":
+        redirect('/login_error')
+        return
+    username = request.forms.get("username").strip()
+    password = request.forms.get("password").strip()
+    if password != "password":
+        redirect('/login_error')
+        return
+    session_id = request.cookies.get("session_id",str(uuid.uuid4()))
+    result = db.search(query.session_id == session_id)
+    if len(result) == 0:
+        db.insert({'session_id':session_id, 'username':username})
+    else:
+        session = result[0]
+        db.update({'username':username},query.session_id == session_id)
+    response.set_cookie("session_id",session_id)
+    redirect('/')
+
+@get('/logout')
+def get_logout():
+    session_id = request.cookies.get("session_id",str(uuid.uuid4()))
+    result = db.search(query.session_id == session_id)
+    if len(result) == 0:
+        db.insert({'session_id':session_id, 'username':"Unknown"})
+    else:
+        db.update({'username':"Unknown"},query.session_id == session_id)
+    response.set_cookie("session_id",session_id)
+    redirect('/')
+
+@get('/login_error')
+def get_login_error():
+    return template("login_error")
 
 @get('/set_status/<id:int>/<value:int>')
 def get_set_status(id, value):
@@ -83,26 +142,26 @@ def get_delete_item(id):
     cursor.close()
     redirect('/')
 
-visits = 0
+@get("/picture")
+def get_picture():
+    # picture from here: https://editor.p5js.org/p5/sketches/Hello_P5:_animate
+    # p5js.org
+    return template("picture")
 
-visit_times = {
-    }
-first_visit = {
-    }
 
 @get("/visit")
 def get_visit():
-    visit_counter = int(request.cookies.get("visit_counter",'0'))
-    user_id = request.cookies.get("user_id",str(random.randint(1000000000,2000000000)))
-    visit_counter = visit_counter + 1
-    response.set_cookie("visit_counter",str(visit_counter))
-    response.set_cookie("user_id",user_id)
-    last_visit = visit_times.get(user_id,"never")
-    visit_times[user_id] = str(datetime.datetime.now())
-    if last_visit == "never":
-        first_visit[user_id] = visit_times[user_id]
-    return("User #" + user_id + ", you have visited this useless web page " +
-        str(visit_counter) + " times, and your last visit was at " + last_visit + ", with your first visit on " + first_visit[user_id] + ".")
+    session_id = request.cookies.get("session_id",str(uuid.uuid4()))
+    result = db.search(query.session_id == session_id)
+    if len(result) == 0:
+        db.insert({'session_id':session_id, 'visit_count':1})
+        visit_count = 1
+    else:
+        session = result[0]
+        visit_count = session['visit_count'] + 1
+        db.update({'visit_count':visit_count},query.session_id == session_id)
+    response.set_cookie("session_id",session_id)
+    return(f"Welcome, session_id #{session_id}. Visit# {visit_count}.")
 
 if ON_PYTHONANYWHERE:
     application = default_app()
